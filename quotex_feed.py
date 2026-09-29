@@ -18,7 +18,7 @@ import time
 
 import pandas as pd
 
-from config import PAIR_MAP, QUOTEX_EMAIL, QUOTEX_PASSWORD
+from config import PAIR_MAP, QUOTEX_EMAIL, QUOTEX_PASSWORD, QUOTEX_PROXY
 
 log = logging.getLogger("quotex")
 
@@ -164,7 +164,10 @@ def is_ready():
 def status_text():
     now = time.time()
     head = "🟢 Feed connected" if _state["connected"] else "🔴 Feed not connected"
-    lines = [f"{head} | host: {_state['host'] or '-'} | reconnects: {_state['reconnects']}"]
+    proxy = "on" if QUOTEX_PROXY else "off"
+    lines = [
+        f"{head} | host: {_state['host'] or '-'} | proxy: {proxy} | reconnects: {_state['reconnects']}"
+    ]
     if _state["last_error"]:
         lines.append(f"Last error: {_state['last_error'][:220]}")
     if _state["open"]:
@@ -290,10 +293,21 @@ async def _session(host):
     except ImportError:
         from quotexapi.stable_api import Quotex
 
+    proxies = None
+    if QUOTEX_PROXY:
+        proxies = {"http": QUOTEX_PROXY, "https": QUOTEX_PROXY, "wss": QUOTEX_PROXY}
     try:
-        client = Quotex(email=QUOTEX_EMAIL, password=QUOTEX_PASSWORD, lang="en", host=host)
+        client = Quotex(
+            email=QUOTEX_EMAIL,
+            password=QUOTEX_PASSWORD,
+            lang="en",
+            host=host,
+            proxies=proxies,
+        )
     except TypeError:
         client = Quotex(email=QUOTEX_EMAIL, password=QUOTEX_PASSWORD, lang="en")
+        if proxies:
+            log.warning("this pyquotex build has no proxies argument")
     ok, reason = await asyncio.wait_for(_call(client.connect), timeout=90)
     if not ok:
         raise RuntimeError(f"login failed: {reason}")

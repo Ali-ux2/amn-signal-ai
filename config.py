@@ -13,6 +13,9 @@ ADMIN_USER_ID = int(os.getenv("TELEGRAM_ADMIN_ID", "0") or "0")
 # Set these in Railway > worker > Variables (never in code)
 QUOTEX_EMAIL = os.getenv("QUOTEX_EMAIL", "").strip()
 QUOTEX_PASSWORD = os.getenv("QUOTEX_PASSWORD", "").strip()
+# Optional. Railway's own address is refused at login. A normal proxy you control:
+# http://user:pass@host:port  or  socks5://user:pass@host:port
+QUOTEX_PROXY = os.getenv("QUOTEX_PROXY", "").strip()
 
 # display name -> Quotex asset name. Feed may swap to XXXUSD_otc if this name is closed.
 PAIR_MAP = {
