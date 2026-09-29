@@ -1,13 +1,17 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
 import numpy as np
 import pandas as pd
+
 import quotex_feed
-from config import PAIR_MAP
+from config import CONFIDENCE_MIN, PAIR_MAP
 
 KAMPALA = ZoneInfo("Africa/Kampala")
+
 
 @dataclass
 class Signal:
@@ -22,6 +26,7 @@ class Signal:
     entry_time: str
     candles: pd.DataFrame
 
+
 def _rsi(close, period=14):
     delta = close.diff()
     gain = delta.clip(lower=0).rolling(period).mean()
@@ -29,8 +34,10 @@ def _rsi(close, period=14):
     rs = gain / loss.replace(0, np.nan)
     return 100 - (100 / (1 + rs))
 
+
 def _ema(close, period):
     return close.ewm(span=period, adjust=False).mean()
+
 
 def _demarker(high, low, period=14):
     up = (high - high.shift(1)).clip(lower=0)
@@ -40,8 +47,9 @@ def _demarker(high, low, period=14):
     denom = (de_max + de_min).replace(0, np.nan)
     return de_max / denom
 
+
 def _last_swing(high, low, depth=12):
-    if len(high) < depth * 2:
+    if len(high) < depth:
         return None
     h = high.iloc[-depth:]
     l = low.iloc[-depth:]
@@ -56,17 +64,30 @@ def _last_swing(high, low, depth=12):
         return "HIGH"
     return None
 
+
+def _closed_only(candles: pd.DataFrame) -> pd.DataFrame:
+    """Drop the minute that is still forming so RSI/EMA cannot flip after the card is queued."""
+    if candles is None or candles.empty:
+        return candles
+    now_bucket = pd.Timestamp.now(tz="UTC").floor("min")
+    last = candles.index[-1]
+    if getattr(last, "tzinfo", None) is None:
+        last = last.tz_localize("UTC")
+    if last >= now_bucket - pd.Timedelta(seconds=2):
+        return candles.iloc[:-1]
+    return candles
+
+
 def fetch_candles(display_pair):
-    # Was Yahoo. Now reads the live Quotex OTC candles held in memory.
-    # Raises if the pair has no data or the feed is stale; the bot skips it.
     return quotex_feed.get_candles(display_pair).dropna()
 
+
 def analyze_pair(display_pair):
-    feed_symbol = PAIR_MAP.get(display_pair)
+    feed_symbol = quotex_feed.resolved_name(display_pair) or PAIR_MAP.get(display_pair)
     if not feed_symbol:
         raise ValueError("Pair not mapped")
-    candles = fetch_candles(display_pair)
-    if len(candles) < 30:
+    candles = _closed_only(fetch_candles(display_pair))
+    if candles is None or len(candles) < 30:
         return None
 
     high = candles["High"]
@@ -141,7 +162,7 @@ def analyze_pair(display_pair):
         raw = votes_put
 
     confidence = int(min(92, 64 + raw * 4))
-    if confidence < 68:
+    if confidence < CONFIDENCE_MIN:
         return None
 
     return Signal(
@@ -157,5 +178,11 @@ def analyze_pair(display_pair):
         candles=candles.tail(80).copy(),
     )
 
-def check_result(signal):
-    return "SKIP"
+
+def grade(direction, open_price, close_price):
+    if open_price is None or close_price is None or open_price == close_price:
+        return "DOJI"
+    up = close_price > open_price
+    if direction == "CALL":
+        return "WIN" if up else "LOSS"
+    return "WIN" if not up else "LOSS"
