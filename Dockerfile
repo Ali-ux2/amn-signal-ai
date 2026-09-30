@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 # Install system dependencies for Playwright (headless Chromium)
 RUN apt-get update && apt-get install -y \
+    git \
     libnss3 \
     libatk-bridge2.0-0 \
     libdrm2 \
